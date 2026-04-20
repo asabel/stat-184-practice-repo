@@ -1,0 +1,324 @@
+---
+title: "Stat 184 Homework 4.3"
+author: "Alexander Sabel"
+date: today
+format: 
+  pdf:
+    number-sections: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+## Busiest Airports
+
+### Busiest Airports Table
+
+```{r}
+#| message: false
+#| warning: false
+#| label: tbl-airports
+#| tbl-cap: "Busiest Airports by Annual Passenger Traffic (Millions), 2020-2023"
+
+library(tidyverse)
+library(rvest)
+library(knitr)
+library(kableExtra)
+
+wiki_url <- "https://en.wikipedia.org/wiki/List_of_busiest_airports_by_passenger_traffic"
+
+wikiRawList <- read_html(x = wiki_url) |>
+  html_elements(css = "table.wikitable") |>
+  html_table()
+
+airport_codes <- c("ATL", "FRA", "PKX", "DXB", "DFW", "LHR")
+code_pattern <- paste(airport_codes, collapse = "|")
+
+data_2023_raw <- wikiRawList[[1]]
+colnames(data_2023_raw) <- make.unique(colnames(data_2023_raw))
+data_2023 <- data_2023_raw |>
+  rename(Code = contains("Code") | contains("IATA")) |>
+  filter(str_detect(Code, code_pattern)) |>
+  select(Airport, Code, Passengers = contains("2023") | contains("Passenger")) |>
+  mutate(Year = 2023)
+
+data_2022_raw <- wikiRawList[[2]]
+colnames(data_2022_raw) <- make.unique(colnames(data_2022_raw))
+data_2022 <- data_2022_raw |>
+  rename(Code = contains("Code") | contains("IATA")) |>
+  filter(str_detect(Code, code_pattern)) |>
+  select(Airport, Code, Passengers = contains("2022") | contains("Passenger")) |>
+  mutate(Year = 2022)
+
+data_2021_raw <- wikiRawList[[3]]
+colnames(data_2021_raw) <- make.unique(colnames(data_2021_raw))
+data_2021 <- data_2021_raw |>
+  rename(Code = contains("Code") | contains("IATA")) |>
+  filter(str_detect(Code, code_pattern)) |>
+  select(Airport, Code, Passengers = contains("2021") | contains("Passenger")) |>
+  mutate(Year = 2021)
+
+data_2020_raw <- wikiRawList[[4]]
+colnames(data_2020_raw) <- make.unique(colnames(data_2020_raw))
+data_2020 <- data_2020_raw |>
+  rename(Code = contains("Code") | contains("IATA")) |>
+  filter(str_detect(Code, code_pattern)) |>
+  select(Airport, Code, Passengers = contains("2020") | contains("Passenger")) |>
+  mutate(Year = 2020)
+
+busiestAirportsTidy <- bind_rows(data_2023, data_2022, data_2021, data_2020) |>
+  mutate(
+    Passengers_Millions = round(parse_number(as.character(Passengers)) / 1e6, 2),
+    Airport = str_remove_all(Airport, "\\[.*\\d+\\]"),
+    Airport = str_squish(Airport),
+    Code = str_extract(Code, code_pattern)
+  ) |>
+  select(Airport, Code, Year, `Passengers (Millions)` = Passengers_Millions)
+
+busiestAirportsTidy |>
+  pivot_wider(names_from = Year, values_from = `Passengers (Millions)`) |>
+  kable(booktabs = TRUE, align = "lcccc") |>
+  kable_styling(latex_options = c("striped", "hold_position"), full_width = FALSE)
+```
+
+### Busiest Airports Plot
+
+```{r}
+#| message: false
+#| warning: false
+#| label: fig-airport-plot
+#| fig-cap: "Passenger Traffic Trends (2020-2023) for Selected Major Global Hubs."
+
+ggplot(busiestAirportsTidy, aes(x = Year, y = `Passengers (Millions)`, color = Code, group = Code)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_x_continuous(breaks = 2020:2023) +
+  theme_minimal() +
+  labs(title = "Passenger Traffic Trends (2020-2023)",
+       subtitle = "Data visualized in millions of passengers",
+       y = "Passengers (Millions)",
+       x = "Year") +
+  theme(plot.title = element_text(face = "bold"))
+```
+
+### Buisiest Airports Narrative
+
+As shown in @tbl-airports, the table gives a visual representation of airport travel through six selected airports for the years 2020-2025. The heatmap uses both colors and numbers to highlight changes not only in a single airport's travelers, but also to compare the differences across the six different airports throughout the selected years.
+
+The @fig-airport-plot visualizes the amount of airport travelers through the six selected airports using a scatter and line plot. This graph allows readers to better compare the raw amount of passengers between the airports and how the amount of travelers varied year-by-year.
+
+## Monte Carlo Number Integration
+
+### Monte Carlo Number Integration Plot
+
+```{r}
+#| message: false
+#| warning: false
+#| label: fig-monte-carlo
+#| fig-cap: "Monte Carlo Integration of $f(x) = x^2$ showing the convergence of area estimates as $n$ increases."
+
+library(tidyverse)
+library(patchwork)
+
+f <- function(x) x^2
+x_min <- 0
+x_max <- 2
+y_min <- 0
+y_max <- 4
+rect_area <- (x_max - x_min) * (y_max - y_min)
+
+n_values <- c(10, 100, 1000, 10000)
+
+all_sim_data <- map_df(n_values, function(n_val) {
+  data.frame(
+    x = runif(n_val, x_min, x_max),
+    y = runif(n_val, y_min, y_max),
+    n = n_val
+  )
+}) |>
+  mutate(
+    flag = if_else(y <= f(x), "on/below", "above"),
+    facet_label = factor(paste0("n = ", n), levels = paste0("n = ", n_values))
+  )
+
+estimates <- all_sim_data |>
+  group_by(facet_label) |>
+  summarize(
+    p = mean(flag == "on/below"),
+    est = p * rect_area
+  )
+
+ggplot(all_sim_data) +
+  stat_function(fun = f, color = "blue", linewidth = 1.2, xlim = c(x_min, x_max)) +
+  geom_point(aes(x, y, color = flag), size = 0.5, alpha = 0.6) +
+  geom_text(data = estimates,
+            aes(x = (x_min + x_max) / 2, y = 0.2, label = paste("Est:", round(est, 4))),
+            size = 3.5, fontface = "bold") +
+  facet_wrap(~facet_label, nrow = 2) +
+  scale_color_manual(values = c("above" = "deeppink", "on/below" = "gold")) +
+  theme_minimal() +
+  labs(title = "Monte Carlo Integration",
+       x = "x", y = "y") +
+  theme(legend.position = "bottom")
+```
+
+### Monte Carlo Number Integration Narrative
+
+The @fig-monte-carlo visualizes how number integration works using simulated points. It can be seen that randomized points get plotted below or above the line $f(x)=x^2$, and can be distinguished by their different colors. The more amount of points that are plotted, the clearer the difference between above and below the line $f(x)=x^2$ becomes.
+
+## Planning and Prompting GenAI
+
+### Planning How to Wrangle the Data
+
+Goal: The goal of this section is to first tidy the calcium.csv data file, then create an appropriate plot/graph that will allow readers to evaluate the difference in ulnar calcium measurements across time and the two treatment groups.
+
+Nouns: calcium.csv, GenAI(Anthropic Claude), Rstudio, Quarto Markdown Document
+
+Verbs: tidy, prompt, code, generate, render
+
+Steps: 1. Remove the first row of data, which are the title's of each column. 2. Move columns so every row becomes a case (a single woman). Move columns 5-8(diet/exercise group) under the first four(null treatment group). 3. Add a column named "Treatment Group" identifying the treatment group of each woman. The first 15 rows should be labeled as null treatment, and the next 16 should be labeled as the diet/exercise group. 4. Rename columns to appropriate names(column 1 = initial, column 2 = Year 1, column 3 = Year 2, column 4 = Year 3) 5. Create an appropriate plot/graph of the data using the kable package.
+
+This was the output generated by Claude:
+
+```{r}
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+
+# Read the CSV, skipping the first row (original column headers)
+calcium_raw <- read.csv("~/Downloads/calcium.csv", header = FALSE, skip = 1)
+
+# Split into the two groups (columns 1-4 = null treatment, columns 5-8 = diet/exercise)
+null_group <- calcium_raw[1:15, 1:4]
+diet_group <- calcium_raw[1:16, 5:8]
+
+# Add Treatment Group label
+null_group$`Treatment Group` <- "Null Treatment"
+diet_group$`Treatment Group` <- "Diet/Exercise"
+
+# Rename columns to appropriate time-point names
+col_names <- c("Initial", "Year 1", "Year 2", "Year 3", "Treatment Group")
+colnames(null_group) <- col_names
+colnames(diet_group) <- col_names
+
+# Stack the two groups (every row = one woman)
+calcium_tidy <- bind_rows(null_group, diet_group)
+
+# Preview the tidy data
+kable(calcium_tidy, caption = "Tidy Calcium Dataset") |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed", "bordered"),
+    full_width = FALSE,
+    position = "center"
+  ) |>
+  row_spec(0, bold = TRUE, background = "#4A7C9E", color = "white") |>
+  pack_rows("Null Treatment", 1, 15) |>
+  pack_rows("Diet/Exercise", 16, 31)
+```
+
+------------------------------------------------------------------------
+
+## Step 5: Visualize Ulnar Calcium Over Time by Treatment Group
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-width: 8
+#| fig-height: 5
+
+# Pivot to long format for plotting
+calcium_long <- calcium_tidy |>
+  mutate(ID = row_number()) |>
+  pivot_longer(
+    cols = c("Initial", "Year 1", "Year 2", "Year 3"),
+    names_to = "Time",
+    values_to = "Calcium"
+  ) |>
+  mutate(Time = factor(Time, levels = c("Initial", "Year 1", "Year 2", "Year 3")))
+
+# Compute group means for overlay
+calcium_means <- calcium_long |>
+  group_by(`Treatment Group`, Time) |>
+  summarise(Mean_Calcium = mean(Calcium, na.rm = TRUE), .groups = "drop")
+
+# Plot
+ggplot(calcium_long, aes(x = Time, y = Calcium, color = `Treatment Group`, group = interaction(ID, `Treatment Group`))) +
+  # Individual trajectories (faint)
+  geom_line(alpha = 0.2, linewidth = 0.5) +
+  geom_point(alpha = 0.3, size = 1.5) +
+  # Group mean trajectories (bold)
+  geom_line(
+    data = calcium_means,
+    aes(x = Time, y = Mean_Calcium, group = `Treatment Group`, color = `Treatment Group`),
+    linewidth = 1.8, inherit.aes = FALSE
+  ) +
+  geom_point(
+    data = calcium_means,
+    aes(x = Time, y = Mean_Calcium, color = `Treatment Group`),
+    size = 4, inherit.aes = FALSE
+  ) +
+  scale_color_manual(values = c("Null Treatment" = "#D04A35", "Diet/Exercise" = "#2E7BB4")) +
+  labs(
+    title = "Ulnar Calcium Measurements Over Time",
+    subtitle = "Individual trajectories (faint) with group means (bold) by treatment group",
+    x = "Time Point",
+    y = "Ulnar Calcium (units)",
+    color = "Treatment Group",
+    caption = "Data source: calcium.csv"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15),
+    plot.subtitle = element_text(color = "gray40", size = 11),
+    legend.position = "top",
+    panel.grid.minor = element_blank()
+  )
+```
+
+------------------------------------------------------------------------
+
+### Interpretation
+
+The plot above displays each woman's ulnar calcium trajectory from **Initial** through **Year 3**, with bold lines representing group means. This allows readers to evaluate:
+
+-   **Within-group trends** over time (do calcium levels decline across years?)
+-   **Between-group differences** (does the Diet/Exercise group maintain or improve calcium levels relative to the Null Treatment group?)
+
+## Using a Generic Prompt with GenAI
+
+These are the responses from Claude after using a generic prompt:
+
+![Claude Plot of Group Mean Calcium Data Using a Generic Prompt](~/Downloads/ClaudePlot1.png)
+
+![Claude Plot of Individual Mean Calcium Data Using a Generic Prompt](~/Downloads/ClaudePlot2.png)
+
+Claude's Interpretation of the Data:
+
+Here's what stands out in the data:
+Both groups follow the same pattern — values stay relatively stable across the first three waves (y0→y1→y2), then drop noticeably at the final measurement (y3). This sharp decline at y3 is the dominant signal.
+Group A starts slightly higher (baseline mean ~72.4 vs. ~69.3 for Group B), but both groups converge to nearly identical final values (~64.8 and ~64.5). That convergence is interesting — Group A drops about 7.5 points while Group B drops about 4.8.
+There's substantial individual variation — hit the "Individual lines" toggle to see this. Some participants stay high throughout, others are consistently low, and a few show unusual trajectories (one in Group A actually rises at y3 while most fall).
+If you can share what the groups represent (e.g., treatment vs. control, or different diets/supplements) and what's being measured, I can dig into the statistics more precisely — things like whether the group difference at y3 is significant, or which individuals are outliers.
+Version: Claude Sonnet 4.6 Extended
+(This chat took place on Tuesday, March 31st, 2026.)
+
+### GenAI Narrative
+
+There is a difference between the results, although the response from the generic prompt could be considered a good start. Using a more detailed prompt allowed the prompter to ensure that Claude would follow a specific path when creating it's output. This can be important especially if the prompter has methods that they know they want to use/follow, as oppose to allowing GenAI to have free reign. Having a more specific prompt also ensures that the output is more specific and tailored to what the prompter requested. Claude's interpretation of the data is also very broad/basic, listing obvious facts from the data and gleaning no deeper insights. This may because GenAI is not as adept at understanding broader context and/or analyzing images, something that a person would be better at doing.
+
+## GenAI Usage Appendix
+
+1. In this document I used GenAI tools (Claude specifically) for the GenAI section, as well as writing various alt-texts for the plots/graphs. I also consulted Claude in various sections with miscellanious items, smaller prompts such as "how to add captions to this R studio plot" and "what is this error message and why isn't my qmd file creating a pdf".
+2. For the GenAI sections I used Claude's Sonnet 4.6 on 4/10/2026. I used additional help with smaller issues such as errors and formatting the qmd document from Claude on 4/12/2026 and 4/13/2026.
+
+## Code Appendix
+
+```{r}
+#| ref.label: !expr knitr::all_labels()
+#| echo: true
+#| eval: false
+```
